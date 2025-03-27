@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">TesisAndroid</string>
+    <string name="email">email</string>
+    <string name="nombre">nombre</string>
+    <string name="password">password</string>
+    <string name="confirmar_password">Confirmar password</string>
+    <string name="registrar">Registrar</string>
+    <string name="volver_al_login">Volver al login</string>
+    <string name="logo">logo</string>
+    <string name="buscar">buscar</string>
+    <string name="subir">subir</string>
+    <string name="home">home</string>
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+</resources>

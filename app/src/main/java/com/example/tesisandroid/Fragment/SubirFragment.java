@@ -2,9 +2,11 @@ package com.example.tesisandroid.Fragment;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,12 +19,12 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import com.example.tesisandroid.MainActivity;
 import com.example.tesisandroid.R;
+import org.json.JSONObject;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Objects;
 
 public class SubirFragment extends Fragment {
 
@@ -46,14 +48,14 @@ public class SubirFragment extends Fragment {
         btnUploadFile.setEnabled(false);
 
         btnSelectFile.setOnClickListener(v -> selectFile());
-        btnUploadFile.setOnClickListener(v -> uploadFile());
+        btnUploadFile.setOnClickListener(v -> new UploadTask().execute(fileUri));
 
         return view;
     }
 
     private void selectFile() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("*/*");
+        intent.setType("application/pdf");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(Intent.createChooser(intent, "Selecciona un archivo"), PICK_FILE_REQUEST);
     }
@@ -64,77 +66,89 @@ public class SubirFragment extends Fragment {
         if (resultCode == Activity.RESULT_OK && data != null) {
             fileUri = data.getData();
             if (fileUri != null) {
-                String selectedPath = fileUri.getPath();
-                txtFileName.setText(selectedPath);
+                txtFileName.setText(getFileName(fileUri));
                 btnUploadFile.setEnabled(true);
             }
         }
     }
 
-    private void uploadFile() {
-        if (fileUri == null) {
-            Toast.makeText(getContext(), "Selecciona un archivo primero", Toast.LENGTH_SHORT).show();
-            return;
+    private String getFileName(Uri uri) {
+        String result = null;
+        if (getContext() != null && uri != null) {
+            try (Cursor cursor = getContext().getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (index != -1) {  // Verifica si el índice es válido
+                        result = cursor.getString(index);
+                    } else {
+                        result = uri.getLastPathSegment();  // Usa el nombre de la URI como alternativa
+                    }
+                }
+            }
         }
-
-        File file = new File(Objects.requireNonNull(fileUri.getPath()));
-        if (!file.exists()) {
-            Toast.makeText(getContext(), "No se pudo encontrar el archivo", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        new UploadTask().execute(file);
+        return result;
     }
-
-    private class UploadTask extends AsyncTask<File, Integer, String> {
+    private void escribirParametro(DataOutputStream writer, String boundary, String key, String value) throws Exception {
+        writer.writeBytes("--" + boundary + "\r\n");
+        writer.writeBytes("Content-Disposition: form-data; name=\"" + key + "\"\r\n\r\n");
+        writer.writeBytes(value + "\r\n");
+    }
+    private class UploadTask extends AsyncTask<Uri, Integer, String> {
         @Override
         protected void onPreExecute() {
             progressBar.setVisibility(View.VISIBLE);
         }
 
         @Override
-        protected String doInBackground(File... files) {
-            File file = files[0];
+        protected String doInBackground(Uri... uris) {
+            Uri fileUri = uris[0];
             String serverURL = MainActivity.BASE_URL + "documentos/subir";
-            String boundary = "*****";
-            String lineEnd = "\r\n";
-            String twoHyphens = "--";
+            String boundary = "*****" + System.currentTimeMillis() + "*****";
 
             try {
+                InputStream inputStream = getContext().getContentResolver().openInputStream(fileUri);
+                String fileName = getFileName(fileUri);
+
                 HttpURLConnection connection = (HttpURLConnection) new URL(serverURL).openConnection();
-                connection.setDoInput(true);
                 connection.setDoOutput(true);
-                connection.setUseCaches(false);
                 connection.setRequestMethod("POST");
-                connection.setRequestProperty("Connection", "Keep-Alive");
-                connection.setRequestProperty("Content-Type", "multipart/form-data;boundary=" + boundary);
+                connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
-                DataOutputStream outputStream = new DataOutputStream(connection.getOutputStream());
-                outputStream.writeBytes(twoHyphens + boundary + lineEnd);
-                outputStream.writeBytes("Content-Disposition: form-data; name=\"archivo\"; filename=\"" + file.getName() + "\"" + lineEnd);
-                outputStream.writeBytes("Content-Type: application/octet-stream" + lineEnd);
-                outputStream.writeBytes(lineEnd);
+                OutputStream outputStream = connection.getOutputStream();
+                DataOutputStream writer = new DataOutputStream(outputStream);
 
-                FileInputStream fileInputStream = new FileInputStream(file);
-                int bytesAvailable = fileInputStream.available();
-                int bufferSize = Math.min(bytesAvailable, 1024);
-                byte[] buffer = new byte[bufferSize];
+                // 🔹 Agregar parámetros obligatorios al request
+                escribirParametro(writer, boundary, "nombre", "Cotización Infozonal");
+                escribirParametro(writer, boundary, "idCategoria", "1");
+                escribirParametro(writer, boundary, "cliente", "Empresa XYZ");
+                escribirParametro(writer, boundary, "fecha_emision", "2024-03-27");
+                escribirParametro(writer, boundary, "importe_total", "500.00");
 
+                // 🔹 Adjuntar archivo PDF
+                writer.writeBytes("--" + boundary + "\r\n");
+                writer.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n");
+                writer.writeBytes("Content-Type: application/pdf\r\n\r\n");
+
+                // Escribir contenido del archivo
+                byte[] buffer = new byte[4096];
                 int bytesRead;
-                while ((bytesRead = fileInputStream.read(buffer, 0, bufferSize)) > 0) {
-                    outputStream.write(buffer, 0, bytesRead);
-                    bytesAvailable = fileInputStream.available();
-                    bufferSize = Math.min(bytesAvailable, 1024);
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    writer.write(buffer, 0, bytesRead);
                 }
+                writer.writeBytes("\r\n--" + boundary + "--\r\n");
 
-                outputStream.writeBytes(lineEnd);
-                outputStream.writeBytes(twoHyphens + boundary + twoHyphens + lineEnd);
-                fileInputStream.close();
-                outputStream.flush();
-                outputStream.close();
+                writer.flush();
+                writer.close();
+                inputStream.close();
 
-                int responseCode = connection.getResponseCode();
-                return responseCode == HttpURLConnection.HTTP_OK ? "Archivo subido exitosamente" : "Error en la subida";
+                // 🔹 Obtener respuesta del servidor
+                InputStream responseStream = connection.getInputStream();
+                byte[] responseBuffer = new byte[1024];
+                int responseLength = responseStream.read(responseBuffer);
+                responseStream.close();
+
+                return new String(responseBuffer, 0, responseLength);
+
             } catch (Exception e) {
                 return "Error: " + e.getMessage();
             }
@@ -147,3 +161,4 @@ public class SubirFragment extends Fragment {
         }
     }
 }
+

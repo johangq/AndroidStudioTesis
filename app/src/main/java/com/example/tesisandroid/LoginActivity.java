@@ -75,13 +75,11 @@ public class LoginActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     try {
                         // 🚨 Agrega esta línea para ver qué está devolviendo el servidor
-                        Log.d("LoginResponse", "Respuesta del servidor: " + responseData);
-
-                        if (responseData.trim().isEmpty()) {
-                            Toast.makeText(LoginActivity.this, "El servidor no envió datos", Toast.LENGTH_SHORT).show();
+                        Log.d("LoginResponse", "Raw response: " + responseData);
+                        if (!responseData.trim().startsWith("{")) {
+                            Toast.makeText(LoginActivity.this, "Respuesta no válida del servidor", Toast.LENGTH_LONG).show();
                             return;
                         }
-
                         JSONObject json = new JSONObject(responseData);
                         boolean success = json.getBoolean("success");
                         if (success) {
